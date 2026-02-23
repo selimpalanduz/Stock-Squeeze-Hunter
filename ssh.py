@@ -1,11 +1,12 @@
 import yfinance as ydatas
-
-ticker = input("Hisse kodu girin (örn: THYAO): ").strip().upper()
+import pandas as pd
+import ta
+ticker = input("Enter code of stock(for example: THYAO): ").strip().upper()
 
 df = ydatas.download(f"{ticker}.IS", period="6mo", auto_adjust=True, progress=False)
 
 if df.empty:
-    print(f"{ticker} için veri bulunamadı.")
+    print(f"{ticker} no data found for this.")
 else:
     #If MultiIndex exists,fix.
     if isinstance(df.columns,pd.MultiIndex):
@@ -15,4 +16,20 @@ else:
     #Clear NaNs
     df.dropna(inplace=True)
 
-    print(df.tail(10))
+    #ADX 
+    df["ADX"]=ta.trend.ADXIndicator(df["High"],df["Low"],df["Close"],window=14).adx()
+    #RSI
+    df["RSI"]=ta.momentum.RSIIndicator(df["Close"],window=14).rsi()
+
+    adx = round(float(df["ADX"].iloc[-1]),2)
+    rsi = round(float(df["RSI"].iloc[-1]),2) 
+
+    no_trend=adx <20
+    rsi_flat =40 <=rsi <=60
+    print(f"ADX:{adx} →{'There is no trend,stock is squeezed' if adx <20 else 'A trend exists'}")
+    print(f"RSI: {rsi} → {'Squeeze band' if rsi_flat else 'Not squeezed'}")
+
+    if no_trend and rsi_flat:
+        print("\n Squeeze is detected!")
+    else:
+        print("\n No squeeze.")
