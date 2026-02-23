@@ -33,3 +33,15 @@ else:
         print("\n Squeeze is detected!")
     else:
         print("\n No squeeze.")
+    # --- Last month's squeeze history --- #0
+    last_month = df[df.index >= df.index[-1] - pd.Timedelta(days=30)]
+    print(f"\n--- Last month's squeeze history ---") #0
+    squeeze_count = 0 #0
+    for date, row in last_month.iterrows(): #0
+        adx_d = round(float(row["ADX"]), 2) #0
+        rsi_d = round(float(row["RSI"]), 2) #0
+        is_squeeze = adx_d < 20 and 40 <= rsi_d <= 60 #0
+        if is_squeeze: #0
+            squeeze_count += 1 #0
+            print(f"{date.strftime('%d.%m.%Y')}: Squeeze  RSI: {rsi_d}  ADX: {adx_d}") #0
+    print(f"\nTotal {squeeze_count} days squeezed.") #0
