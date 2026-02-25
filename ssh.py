@@ -8,75 +8,82 @@ with open("tickers.txt","r")as f:
     
 squeeze_now_list =[]
 squeezed_last_month_list=[]
+failed_tickers = []
 for ticker in tickers:
-    df=ydatas.download(f"{ticker}.IS",period="6mo",auto_adjust=True,progress=False)
-    if df.empty:
-        print(f"{ticker} no data found for this stock.")
-        continue
- 
-    #If MultiIndex exists,fix.
-    if isinstance(df.columns,pd.MultiIndex):
-        df.columns= df.columns.get_level_values(0)
-
-    #Get only needed columns defined below:
-    df =df[["Open","High","Low","Close","Volume"]]
-    #Clear NaNs
-    df.dropna(inplace=True)
-
-    #ADX 
-    df["ADX"]=ta.trend.ADXIndicator(df["High"],df["Low"],df["Close"],window=14).adx()
-    #RSI
-    df["RSI"]=ta.momentum.RSIIndicator(df["Close"],window=14).rsi()
+    try:
+        df=ydatas.download(f"{ticker}.IS",period="6mo",auto_adjust=True,progress=False)
+        if df.empty:
+            print(f"{ticker} -> Unable to process")
+            failed_tickers.append(ticker)
+            continue
     
-    #EMA-10 Based Bollinger Band.
-    ema=df["Close"].ewm(span=10,adjust=False).mean()
-    std=df["Close"].rolling(window=20).std()
-    df["BB_Upper"]=ema +2 * std
-    df["BB_Lower"]=ema -2 * std
+        #If MultiIndex exists,fix.
+        if isinstance(df.columns,pd.MultiIndex):
+            df.columns= df.columns.get_level_values(0)
 
-    #ATR:Needed for Keltner
-    df["ATR"]=ta.volatility.AverageTrueRange(df["High"],df["Low"],df["Close"],window=14).average_true_range()
+        #Get only needed columns defined below:
+        df =df[["Open","High","Low","Close","Volume"]]
+        #Clear NaNs
+        df.dropna(inplace=True)
 
-    #Keltner
-    kc_mid=df["Close"].ewm(span=20,adjust=False).mean()
-    df["KC_Upper"]=kc_mid +1.5 *df["ATR"]
-    df["KC_Lower"]=kc_mid -1.5 *df["ATR"]
-    df.dropna(inplace=True)
-    if df.empty:
-        continue
+        #ADX 
+        df["ADX"]=ta.trend.ADXIndicator(df["High"],df["Low"],df["Close"],window=14).adx()
+        #RSI
+        df["RSI"]=ta.momentum.RSIIndicator(df["Close"],window=14).rsi()
+        
+        #EMA-10 Based Bollinger Band.
+        ema=df["Close"].ewm(span=10,adjust=False).mean()
+        std=df["Close"].rolling(window=20).std()
+        df["BB_Upper"]=ema +2 * std
+        df["BB_Lower"]=ema -2 * std
 
-    adx = round(float(df["ADX"].iloc[-1]),2)
-    rsi = round(float(df["RSI"].iloc[-1]),2) 
-    bb =df["BB_Upper"].iloc[-1] < df["KC_Upper"].iloc[-1] and \
-        df["BB_Lower"].iloc[-1] > df["KC_Lower"].iloc[-1]
+        #ATR:Needed for Keltner
+        df["ATR"]=ta.volatility.AverageTrueRange(df["High"],df["Low"],df["Close"],window=14).average_true_range()
 
-    no_trend=adx <20
-    rsi_flat =40 <=rsi <=60
-    
-    squeeze_now = no_trend and rsi_flat and bb
+        #Keltner
+        kc_mid=df["Close"].ewm(span=20,adjust=False).mean()
+        df["KC_Upper"]=kc_mid +1.5 *df["ATR"]
+        df["KC_Lower"]=kc_mid -1.5 *df["ATR"]
+        df.dropna(inplace=True)
+        if df.empty:
+            continue
 
-    # Last 30 days
-    last_month = df[df.index >= df.index[-1] - pd.Timedelta(days=30)]
-    squeeze_count = 0
+        adx = round(float(df["ADX"].iloc[-1]),2)
+        rsi = round(float(df["RSI"].iloc[-1]),2) 
+        bb =df["BB_Upper"].iloc[-1] < df["KC_Upper"].iloc[-1] and \
+            df["BB_Lower"].iloc[-1] > df["KC_Lower"].iloc[-1]
 
-    for _, row in last_month.iterrows():
-        adx_d = float(row["ADX"])
-        rsi_d = float(row["RSI"])
-        bb_d = row["BB_Upper"] < row["KC_Upper"] and row["BB_Lower"] > row["KC_Lower"]
+        no_trend=adx <20
+        rsi_flat =40 <=rsi <=60
+        
+        squeeze_now = no_trend and rsi_flat and bb
 
-        if adx_d < 20 and 40 <= rsi_d <= 60 and bb_d:
-            squeeze_count += 1
+        # Last 30 days
+        last_month = df[df.index >= df.index[-1] - pd.Timedelta(days=30)]
+        squeeze_count = 0
 
-    if squeeze_now:
-        squeeze_now_list.append(ticker)
+        for _, row in last_month.iterrows():
+            adx_d = float(row["ADX"])
+            rsi_d = float(row["RSI"])
+            bb_d = row["BB_Upper"] < row["KC_Upper"] and row["BB_Lower"] > row["KC_Lower"]
 
-    if squeeze_count > 0:
-        squeezed_last_month_list.append(ticker)
+            if adx_d < 20 and 40 <= rsi_d <= 60 and bb_d:
+                squeeze_count += 1
 
-    print(f"{ticker} → Now:{squeeze_now} | 30d squeeze days:{squeeze_count}")
+        if squeeze_now:
+            squeeze_now_list.append(ticker)
 
-    time.sleep(0.2)  # yfinance rate limit yememek için
+        if squeeze_count > 0:
+            squeezed_last_month_list.append(ticker)
 
+        print(f"{ticker} → Now:{squeeze_now} | 30d squeeze days:{squeeze_count}")
+
+        
+    except Exception:
+        print(f"{ticker} →  Unable to process")
+        failed_tickers.append(ticker)
+        continue    
+    time.sleep(0.2)
 print("\n=========================")
 print("SQUEEZE NOW:")
 print(squeeze_now_list)
