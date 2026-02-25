@@ -1,16 +1,23 @@
 import yfinance as ydatas
 import pandas as pd
 import ta
-ticker = input("Enter code of stock(for example: THYAO): ").strip().upper()
+import time
 
-df = ydatas.download(f"{ticker}.IS", period="6mo", auto_adjust=True, progress=False)
-
-if df.empty:
-    print(f"{ticker} no data found for this.")
-else:
+with open("tickers.txt","r")as f:
+    tickers = [line.strip().upper() for line in f if line.strip()]
+    
+squeeze_now_list =[]
+squeezed_last_month_list=[]
+for ticker in tickers:
+    df=ydatas.download(f"{ticker}.IS",period="6mo",auto_adjust=True,progress=False)
+    if df.empty:
+        print(f"{ticker} no data found for this stock.")
+        continue
+ 
     #If MultiIndex exists,fix.
     if isinstance(df.columns,pd.MultiIndex):
         df.columns= df.columns.get_level_values(0)
+
     #Get only needed columns defined below:
     df =df[["Open","High","Low","Close","Volume"]]
     #Clear NaNs
@@ -30,11 +37,13 @@ else:
     #ATR:Needed for Keltner
     df["ATR"]=ta.volatility.AverageTrueRange(df["High"],df["Low"],df["Close"],window=14).average_true_range()
 
-    #Keltner Channel
+    #Keltner
     kc_mid=df["Close"].ewm(span=20,adjust=False).mean()
     df["KC_Upper"]=kc_mid +1.5 *df["ATR"]
     df["KC_Lower"]=kc_mid -1.5 *df["ATR"]
     df.dropna(inplace=True)
+    if df.empty:
+        continue
 
     adx = round(float(df["ADX"].iloc[-1]),2)
     rsi = round(float(df["RSI"].iloc[-1]),2) 
@@ -43,24 +52,35 @@ else:
 
     no_trend=adx <20
     rsi_flat =40 <=rsi <=60
-    print(f"ADX:{adx} →{'There is no trend,stock is squeezed' if adx <20 else 'A trend exists'}")
-    print(f"RSI: {rsi} → {'Squeeze band' if rsi_flat else 'Not squeezed'}")
-    print(f"BB inside Keltner Channel: {'Yes' if bb else 'no'}")
+    
+    squeeze_now = no_trend and rsi_flat and bb
 
-    if no_trend and rsi_flat and bb:
-        print("\n Squeeze is detected!")
-    else:
-        print("\n No squeeze.")
-    # --- Last month's squeeze history --- 
+    # Last 30 days
     last_month = df[df.index >= df.index[-1] - pd.Timedelta(days=30)]
-    print(f"\n--- Last month's squeeze history ---") 
-    squeeze_count = 0 
-    for date, row in last_month.iterrows(): 
-        adx_d = round(float(row["ADX"]), 2) 
-        rsi_d = round(float(row["RSI"]), 2) 
-        bb_d=row["BB_Upper"] < row["KC_Upper"] and row["BB_Lower"] > row ["KC_Lower"]
-        is_squeeze = adx_d < 20 and 40 <= rsi_d <= 60 and bb_d 
-        if is_squeeze: 
-            squeeze_count += 1 
-            print(f"{date.strftime('%d.%m.%Y')}: Squeeze  RSI: {rsi_d}  ADX: {adx_d}") 
-    print(f"\nTotal {squeeze_count} days squeezed.") 
+    squeeze_count = 0
+
+    for _, row in last_month.iterrows():
+        adx_d = float(row["ADX"])
+        rsi_d = float(row["RSI"])
+        bb_d = row["BB_Upper"] < row["KC_Upper"] and row["BB_Lower"] > row["KC_Lower"]
+
+        if adx_d < 20 and 40 <= rsi_d <= 60 and bb_d:
+            squeeze_count += 1
+
+    if squeeze_now:
+        squeeze_now_list.append(ticker)
+
+    if squeeze_count > 0:
+        squeezed_last_month_list.append(ticker)
+
+    print(f"{ticker} → Now:{squeeze_now} | 30d squeeze days:{squeeze_count}")
+
+    time.sleep(0.2)  # yfinance rate limit yememek için
+
+print("\n=========================")
+print("SQUEEZE NOW:")
+print(squeeze_now_list)
+
+print("\nSqueezed in last 30 days:")
+print(squeezed_last_month_list)    
+
