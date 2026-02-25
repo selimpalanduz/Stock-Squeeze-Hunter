@@ -70,10 +70,10 @@ for ticker in tickers:
             if adx_d < 20 and 40 <= rsi_d <= 60 and bb_d:
                 squeeze_count += 1
 
-        if squeeze_now:
+        if squeeze_now and squeeze_count >= 3:
             squeeze_now_list.append(ticker)
 
-        if squeeze_count > 0:
+        if squeeze_count >= 3:
             squeezed_last_month_list.append(ticker)
 
         print(f"{ticker} → Now:{squeeze_now} | 30d squeeze days:{squeeze_count}")
@@ -83,7 +83,20 @@ for ticker in tickers:
         print(f"{ticker} →  Unable to process")
         failed_tickers.append(ticker)
         continue    
-    time.sleep(0.2)
+    time.sleep(0.05)
+
+now_set = set(squeeze_now_list)
+last30_set = set(squeezed_last_month_list)
+
+recent_but_not_now = sorted(list(last30_set - now_set))
+both_now_and_last30 = sorted(list(now_set & last30_set))
+
+print("\n=========================")
+print("Squeezed in last 30 days BUT NOT now:")
+print(recent_but_not_now)
+
+print("\nSqueezed in last 30 days AND now:")
+print(both_now_and_last30)
 print("\n=========================")
 print("SQUEEZE NOW:")
 print(squeeze_now_list)
