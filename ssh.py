@@ -60,16 +60,16 @@ def run_scan():
             squeeze_now = no_trend and rsi_flat and bb
 
             # Last 30 days
-            last_month = df[df.index >= df.index[-1] - pd.Timedelta(days=30)]
-            squeeze_count = 0
+            cutoff = df.index[-1] - pd.Timedelta(days=30)
 
-            for _, row in last_month.iterrows():
-                adx_d = float(row["ADX"])
-                rsi_d = float(row["RSI"])
-                bb_d = row["BB_Upper"] < row["KC_Upper"] and row["BB_Lower"] > row["KC_Lower"]
+            squeeze_cond = (
+                (df["ADX"] < 20) &
+                (df["RSI"].between(40, 60)) &
+                (df["BB_Upper"] < df["KC_Upper"]) &
+                (df["BB_Lower"] > df["KC_Lower"])
+            )
 
-                if adx_d < 20 and 40 <= rsi_d <= 60 and bb_d:
-                    squeeze_count += 1
+            squeeze_count = int(squeeze_cond.loc[df.index >= cutoff].sum())
 
             if squeeze_now and squeeze_count >= 3:
                 squeeze_now_list.append({"Ticker": ticker, "ADX": adx, "RSI": rsi, "30d Squeeze Days": squeeze_count})
