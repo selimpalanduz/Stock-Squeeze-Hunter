@@ -3,14 +3,17 @@ import pandas as pd
 import ta
 import time
 
-def run_scan():
+def run_scan(progress_callback=None):
     with open("tickers.txt","r")as f:
         tickers = [line.strip().upper() for line in f if line.strip()]
         
     squeeze_now_list =[]
     squeezed_last_month_list=[]
     failed_tickers = []
-    for ticker in tickers:
+    total=len(tickers)
+    for i,ticker in enumerate(tickers,1):
+        if progress_callback:
+            progress_callback(ticker,i,total)
         try:
             df=ydatas.download(f"{ticker}.IS",period="6mo",auto_adjust=True,progress=False)
             if df.empty:
@@ -85,5 +88,5 @@ def run_scan():
             failed_tickers.append(ticker)
             continue    
         time.sleep(0.05)
-    return squeeze_now_list,squeezed_last_month_list,failed_tickers
+    return squeeze_now_list,squeezed_last_month_list,failed_tickers,total
 

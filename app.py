@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from ssh import run_scan
 
-st.set_page_config(page_title="Stock Squeeze Hunter", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="Stock Squeeze Hunter", page_icon="📈", layout="wide")
 
 st.markdown("""
 <style>
@@ -44,13 +44,13 @@ with col2:
             status_text.markdown(f'<div class="status-bar">Scanning {ticker} · {i}/{total}</div>', unsafe_allow_html=True)
             progress_bar.progress(i / total)
 
-        now, last30, failed = run_scan()
-        st.session_state.results = (now, last30, failed)
+        now, last30, failed,total_scanned = run_scan(progress_callback=progress_callback)
+        st.session_state.results = (now, last30, failed,total_scanned)
         progress_bar.empty()
         status_text.markdown('<div class="status-bar">✓ Scan complete</div>', unsafe_allow_html=True)
 
 if st.session_state.results:
-    now, last30, failed = st.session_state.results
+    now, last30, failed,total_scanned= st.session_state.results
 
     m1, m2, m3, m4 = st.columns(4)
     with m1:
@@ -58,7 +58,7 @@ if st.session_state.results:
     with m2:
         st.markdown(f'<div class="metric-card"><div class="value">{len(last30)}</div><div class="label">Last 30 Days</div></div>', unsafe_allow_html=True)
     with m3:
-        st.markdown(f'<div class="metric-card"><div class="value">561</div><div class="label">Scanned</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><div class="value">{total_scanned}</div><div class="label">Scanned</div></div>', unsafe_allow_html=True)
     with m4:
         st.markdown(f'<div class="metric-card"><div class="value">{len(failed)}</div><div class="label">Failed</div></div>', unsafe_allow_html=True)
 
