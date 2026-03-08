@@ -3,7 +3,7 @@ import pandas as pd
 import ta
 import time
 
-def run_scan(progress_callback=None):
+def run_scan(progress_callback=None, mode="classic"):
     with open("tickers.txt","r")as f:
         tickers = [line.strip().upper() for line in f if line.strip()]
         
@@ -60,17 +60,33 @@ def run_scan(progress_callback=None):
             no_trend=adx <20
             rsi_flat =40 <=rsi <=60
             
-            squeeze_now = no_trend and rsi_flat and bb
+            if mode == "percentile":
+                range_series = df["High"] - df["Low"]
+                last3_range = range_series.iloc[-3:].mean()
+                threshold = range_series.iloc[-20:].quantile(0.25)
+                squeeze_now = no_trend and rsi_flat and (last3_range < threshold)
+            else:
+                squeeze_now = no_trend and rsi_flat and bb
+
 
             # Last 30 days
             cutoff = df.index[-1] - pd.Timedelta(days=30)
-
-            squeeze_cond = (
+            
+            if mode=="percentile":
+                range_series=df["High"]-df["Low"]
+                threshold=range_series.iloc[-20:].quantile(0.25)
+                squeeze_cond=(
+                    (df["ADX"] <20)&
+                    (df["RSI"].between(40,60))&
+                    ((df["High"]-df["Low"])<threshold)
+                )
+            else:
+                squeeze_cond = (
                 (df["ADX"] < 20) &
                 (df["RSI"].between(40, 60)) &
                 (df["BB_Upper"] < df["KC_Upper"]) &
                 (df["BB_Lower"] > df["KC_Lower"])
-            )
+                )
 
             squeeze_count = int(squeeze_cond.loc[df.index >= cutoff].sum())
 

@@ -27,12 +27,30 @@ st.markdown("""
 <div class="title-block">
     <div class="ssh-tag">SSH v0.1 · BIST</div>
     <h1>Stock Squeeze Hunter</h1>
-    <p>Detects squeeze patterns across all BIST stocks using ADX + RSI + Bollinger/Keltner</p>
+    <p>Detects squeeze patterns across all BIST stocks using ADX + RSI + Bollinger/Keltner or Percentile method.</p>
 </div>
 """, unsafe_allow_html=True)
 
 if "results" not in st.session_state:
     st.session_state.results = None
+if "scan_mode" not in st.session_state:
+    st.session_state.scan_mode="classic"
+
+st.markdown('<div class="section-header">Scan Mode</div>', unsafe_allow_html=True)
+b1, b2, b3 = st.columns([1, 1, 1])
+with b1:
+    if st.button("⚡ Classic — BB / Keltner"):
+        st.session_state.scan_mode = "classic"
+        st.session_state.results = None
+        st.rerun()
+with b2:
+    if st.button("🎯 Percentile — Price Range"):
+        st.session_state.scan_mode = "percentile"
+        st.session_state.results = None
+        st.rerun()
+with b3:
+    mode_label = "BB / Keltner" if st.session_state.scan_mode == "classic" else "Percentile (25th)"
+    st.markdown(f'<div class="metric-card" style="padding:0.7rem 1rem;"><div class="value" style="font-size:1rem;">{mode_label}</div><div class="label">Active Mode</div></div>', unsafe_allow_html=True)
 
 col1, col2, col3 = st.columns([1, 1, 1])
 with col2:
@@ -44,7 +62,7 @@ with col2:
             status_text.markdown(f'<div class="status-bar">Scanning {ticker} · {i}/{total}</div>', unsafe_allow_html=True)
             progress_bar.progress(i / total)
 
-        now, last30, failed,total_scanned = run_scan(progress_callback=progress_callback)
+        now, last30, failed,total_scanned = run_scan(progress_callback=progress_callback,mode=st.session_state.scan_mode)
         st.session_state.results = (now, last30, failed,total_scanned)
         progress_bar.empty()
         status_text.markdown('<div class="status-bar">✓ Scan complete</div>', unsafe_allow_html=True)
