@@ -82,13 +82,19 @@ if st.session_state.results:
 
     st.markdown('<div class="section-header">⚡ Squeeze Now</div>', unsafe_allow_html=True)
     if now:
-        st.dataframe(pd.DataFrame(now).sort_values("30d Squeeze Days", ascending=False), use_container_width=True, hide_index=True)
+        df_now = pd.DataFrame(now).sort_values("30d Squeeze Days", ascending=False)
+        df_now["Chart"] = df_now["Ticker"].apply(lambda t: f"https://www.tradingview.com/chart/?symbol=BIST:{t}")
+        st.dataframe(df_now, use_container_width=True, hide_index=True,
+                     column_config={"Chart": st.column_config.LinkColumn("Chart", display_text="📈 Open")})
     else:
         st.markdown('<div class="status-bar">No stocks in squeeze right now.</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="section-header">📅 Squeezed in Last 30 Days</div>', unsafe_allow_html=True)
     if last30:
-        st.dataframe(pd.DataFrame(last30).sort_values("30d Squeeze Days", ascending=False), use_container_width=True, hide_index=True)
+        df_last30 = pd.DataFrame(last30).sort_values("30d Squeeze Days", ascending=False)
+        df_last30["Chart"] = df_last30["Ticker"].apply(lambda t: f"https://www.tradingview.com/chart/?symbol=BIST:{t}")
+        st.dataframe(df_last30, use_container_width=True, hide_index=True,
+                     column_config={"Chart": st.column_config.LinkColumn("Chart", display_text="📈 Open")})
     else:
         st.markdown('<div class="status-bar">No stocks squeezed in last 30 days.</div>', unsafe_allow_html=True)
 
