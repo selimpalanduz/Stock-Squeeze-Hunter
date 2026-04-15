@@ -25,7 +25,7 @@ html, body, [class*="css"] { font-family: 'Segoe UI', sans-serif; background-col
 
 st.markdown("""
 <div class="title-block">
-    <div class="ssh-tag">SSH v0.1 · BIST</div>
+    <div class="ssh-tag">SSH v1.1 · BIST</div>
     <h1>Stock Squeeze Hunter</h1>
     <p>Detects squeeze patterns across all BIST stocks using ADX + RSI + Bollinger/Keltner or Percentile method.</p>
 </div>
