@@ -5,75 +5,53 @@ import datetime
 import time
 
 
-def run_scan(progress_callback=None, mode="classic", percentile_threshold=0.25,target_pct=0.15):
-    # Read tickers from file
-    with open("tickers.txt", "r") as f:
+def prepare_data(tickers_file="tickers.txt", lookback_days=730, progress_callback=None):
+    """
+    Tum hisseleri indirir, indikatorleri hesaplar, hazir DataFrame'leri doner.
+    Bu fonksiyon threshold/target'tan bagimsizdir - bir kere cagir, sonuclari cache'le.
+    """
+    with open(tickers_file, "r") as f:
         tickers = [line.strip().upper() for line in f if line.strip()]
 
-    squeeze_now_list = []
-    squeezed_last_month_list = []
-    failed_tickers = []
     total = len(tickers)
-
-    # Set timeframe to 2 years (730 days) for accurate backtesting
     end = datetime.date.today()
-    start = end - datetime.timedelta(days=730)
-
+    start = end - datetime.timedelta(days=lookback_days)
     tickers_with_is = [f"{t}.IS" for t in tickers]
 
-    # --- CHUNKING SYSTEM TO PREVENT RATE LIMITS (IP BANS) ---
     chunk_size = 50
     all_data_frames = []
 
+    print("Veri indiriliyor...")
     for i in range(0, len(tickers_with_is), chunk_size):
         chunk = tickers_with_is[i:i + chunk_size]
-
-        # Download a batch of 50 tickers
         chunk_data = ydatas.download(
-            chunk,
-            start=start,
-            end=end,
-            auto_adjust=True,
-            group_by='ticker',
-            progress=False,
-            threads=True
+            chunk, start=start, end=end, auto_adjust=True,
+            group_by='ticker', progress=False, threads=True
         )
-
         if not chunk_data.empty:
             all_data_frames.append(chunk_data)
-
-        # Sleep for 1.5 seconds to avoid spamming Yahoo Finance
+        if progress_callback:
+            progress_callback(f"Indiriliyor: {min(i+chunk_size, len(tickers_with_is))}/{len(tickers_with_is)}")
         time.sleep(1.5)
 
-    # Merge all chunks into a single DataFrame
-    if all_data_frames:
-        data = pd.concat(all_data_frames, axis=1)
-    else:
-        return [], [], tickers, total, {"signals": 0, "wins": 0, "sum_breakout": 0.0, "sum_days": 0.0}
+    if not all_data_frames:
+        return {"data": {}, "tickers": tickers, "failed": tickers, "total": total}
 
-    # Remove timezone awareness for accurate date comparisons
+    data = pd.concat(all_data_frames, axis=1)
     data.index = data.index.tz_localize(None)
-    cutoff = pd.Timestamp(datetime.date.today()) - pd.Timedelta(days=30)
 
+    prepared = {}
+    failed_tickers = []
+
+    print("Indikatorler hesaplaniyor...")
     counter = 0
-
-    # Global Backtest Statistics
-    global_stats = {
-        "signals": 0,
-        "wins": 0,
-        "sum_breakout": 0.0,
-        "sum_days": 0.0
-    }
-
     for ticker in tickers:
         counter += 1
-        if progress_callback:
-            progress_callback(ticker, counter, total)
+        if progress_callback and counter % 50 == 0:
+            progress_callback(f"Hazirlaniyor: {counter}/{total}")
 
         try:
             yf_ticker = f"{ticker}.IS"
-
-            # Extract the specific ticker's data
             if isinstance(data.columns, pd.MultiIndex):
                 if yf_ticker not in data.columns.levels[0]:
                     failed_tickers.append(ticker)
@@ -83,13 +61,10 @@ def run_scan(progress_callback=None, mode="classic", percentile_threshold=0.25,t
                 df = data.copy()
 
             df.dropna(inplace=True)
-
-            # Require at least 25 days of data for indicators
             if df.empty or len(df) < 25:
                 failed_tickers.append(ticker)
                 continue
 
-            # --- INDICATOR CALCULATIONS ---
             df["ADX"] = ta.trend.ADXIndicator(df["High"], df["Low"], df["Close"], window=14).adx()
             df["RSI"] = ta.momentum.RSIIndicator(df["Close"], window=14).rsi()
 
@@ -99,15 +74,43 @@ def run_scan(progress_callback=None, mode="classic", percentile_threshold=0.25,t
             df["BB_Lower"] = ema - 2 * std
 
             df["ATR"] = ta.volatility.AverageTrueRange(df["High"], df["Low"], df["Close"], window=14).average_true_range()
-
             kc_mid = df["Close"].ewm(span=20, adjust=False).mean()
             df["KC_Upper"] = kc_mid + 1.5 * df["ATR"]
             df["KC_Lower"] = kc_mid - 1.5 * df["ATR"]
-            df.dropna(inplace=True)
 
+            df["RANGE"] = df["High"] - df["Low"]
+            df["RANGE_3D"] = df["RANGE"].rolling(3).mean()
+
+            df.dropna(inplace=True)
             if df.empty:
+                failed_tickers.append(ticker)
                 continue
 
+            prepared[ticker] = df
+
+        except Exception:
+            failed_tickers.append(ticker)
+
+    return {
+        "data": prepared,
+        "tickers": tickers,
+        "failed": failed_tickers,
+        "total": total
+    }
+
+
+def run_backtest(prepared, mode="percentile", percentile_threshold=0.25, target_pct=0.15, hold_days=21):
+    """
+    Hazirlanmis data ustunde squeeze condition ve backtest calistirir.
+    Hizli - veri indirme/indikator hesaplama yapmaz.
+    """
+    cutoff = pd.Timestamp(datetime.date.today()) - pd.Timedelta(days=30)
+    global_stats = {"signals": 0, "wins": 0, "sum_breakout": 0.0, "sum_days": 0.0}
+    squeeze_now_list = []
+    squeezed_last_month_list = []
+
+    for ticker, df in prepared["data"].items():
+        try:
             adx = round(float(df["ADX"].iloc[-1]), 2)
             rsi = round(float(df["RSI"].iloc[-1]), 2)
             bb = (df["BB_Upper"].iloc[-1] < df["KC_Upper"].iloc[-1] and
@@ -116,26 +119,18 @@ def run_scan(progress_callback=None, mode="classic", percentile_threshold=0.25,t
             no_trend = adx < 20
             rsi_flat = 40 <= rsi <= 60
 
-            # --- SQUEEZE LOGIC ---
             if mode == "percentile":
-                # Range series ve 3 günlük ortalaması (now ve backtest için tutarlı)
-                range_series = df["High"] - df["Low"]
-                rolling_3day = range_series.rolling(3).mean()
-
-                # Current squeeze status (son 3 günün ortalaması, son 20 günün quantile'ı)
-                last3_range = range_series.iloc[-3:].mean()
-                current_threshold = range_series.iloc[-20:].quantile(percentile_threshold)
+                last3_range = df["RANGE"].iloc[-3:].mean()
+                current_threshold = df["RANGE"].iloc[-20:].quantile(percentile_threshold)
                 squeeze_now = no_trend and rsi_flat and (last3_range < current_threshold)
 
-                # Historical squeeze for backtest (aynı mantık, vectorized)
-                historical_threshold = range_series.rolling(20).quantile(percentile_threshold)
+                historical_threshold = df["RANGE"].rolling(20).quantile(percentile_threshold)
                 squeeze_cond = (
                     (df["ADX"] < 20) &
                     (df["RSI"].between(40, 60)) &
-                    (rolling_3day < historical_threshold)
+                    (df["RANGE_3D"] < historical_threshold)
                 )
             else:
-                # Classic mode (BB-in-KC)
                 squeeze_now = no_trend and rsi_flat and bb
                 squeeze_cond = (
                     (df["ADX"] < 20) &
@@ -144,10 +139,8 @@ def run_scan(progress_callback=None, mode="classic", percentile_threshold=0.25,t
                     (df["BB_Lower"] > df["KC_Lower"])
                 )
 
-            # --- BACKTEST ENGINE (Target: configurable, Limit: 21 Days) ---            # Find points where a new squeeze starts
             squeeze_starts = squeeze_cond & ~squeeze_cond.shift(1, fill_value=False)
-            # Exclude the last 21 days as they haven't completed their timeframe
-            testable_starts = squeeze_starts.iloc[:-21]
+            testable_starts = squeeze_starts.iloc[:-hold_days]
 
             ticker_wins = 0
             ticker_signals = 0
@@ -157,11 +150,10 @@ def run_scan(progress_callback=None, mode="classic", percentile_threshold=0.25,t
                 global_stats["signals"] += 1
 
                 entry_price = df.loc[idx, "Close"]
-                target_price = entry_price * (1 + target_pct)  # configurable target
-
+                target_price = entry_price * (1 + target_pct)
 
                 start_pos = df.index.get_loc(idx)
-                end_pos = min(start_pos + 22, len(df))  # Next 21 trading days
+                end_pos = min(start_pos + hold_days + 1, len(df))
                 window = df.iloc[start_pos + 1: end_pos]
 
                 if window.empty:
@@ -170,7 +162,6 @@ def run_scan(progress_callback=None, mode="classic", percentile_threshold=0.25,t
                 max_high = window["High"].max()
                 global_stats["sum_breakout"] += ((max_high / entry_price) - 1) * 100
 
-                # Check if target was hit within the window
                 if max_high >= target_price:
                     ticker_wins += 1
                     global_stats["wins"] += 1
@@ -179,29 +170,43 @@ def run_scan(progress_callback=None, mode="classic", percentile_threshold=0.25,t
                     global_stats["sum_days"] += (first_target_idx - idx).days
 
             ticker_win_rate = (ticker_wins / ticker_signals * 100) if ticker_signals > 0 else 0
-
-            # Count how many days it has been in a squeeze in the last 30 days
             squeeze_count = int(squeeze_cond.loc[df.index >= cutoff].sum())
 
-            # Append to results
             if squeeze_now and squeeze_count >= 3:
                 squeeze_now_list.append({
-                    "Ticker": ticker,
-                    "ADX": adx,
-                    "RSI": rsi,
+                    "Ticker": ticker, "ADX": adx, "RSI": rsi,
                     "Win Rate": f"%{ticker_win_rate:.1f}",
                     "30d Squeeze Days": squeeze_count
                 })
             if squeeze_count >= 3:
                 squeezed_last_month_list.append({
-                    "Ticker": ticker,
-                    "ADX": adx,
-                    "RSI": rsi,
+                    "Ticker": ticker, "ADX": adx, "RSI": rsi,
                     "Win Rate": f"%{ticker_win_rate:.1f}",
                     "30d Squeeze Days": squeeze_count
                 })
 
         except Exception:
-            failed_tickers.append(ticker)
+            continue
 
-    return squeeze_now_list, squeezed_last_month_list, failed_tickers, total, global_stats
+    return {
+        "squeeze_now_list": squeeze_now_list,
+        "squeezed_last_month_list": squeezed_last_month_list,
+        "global_stats": global_stats
+    }
+
+
+def run_scan(progress_callback=None, mode="classic", percentile_threshold=0.25, target_pct=0.15):
+    """Eski API - geriye uyumluluk icin."""
+    prepared = prepare_data()
+    result = run_backtest(
+        prepared, mode=mode,
+        percentile_threshold=percentile_threshold,
+        target_pct=target_pct
+    )
+    return (
+        result["squeeze_now_list"],
+        result["squeezed_last_month_list"],
+        prepared["failed"],
+        prepared["total"],
+        result["global_stats"]
+    )
